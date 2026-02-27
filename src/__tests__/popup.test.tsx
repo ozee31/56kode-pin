@@ -36,28 +36,32 @@ describe("PinButton", () => {
 });
 
 describe("Settings", () => {
-  it("calls onSave with updated values on form submit", () => {
-    const onSave = vi.fn();
+  it("calls onChange on each input", () => {
+    const onChange = vi.fn();
     render(
       <Settings
         settings={{ webhookUrl: "", secretToken: "" }}
-        onSave={onSave}
+        onChange={onChange}
       />,
     );
 
     const urlInput = screen.getByPlaceholderText(/webhook/i);
-    const tokenInput = screen.getByPlaceholderText(/token/i);
-
     fireEvent.input(urlInput, {
       target: { value: "https://n8n.example.com/webhook/test" },
     });
+
+    expect(onChange).toHaveBeenCalledWith({
+      webhookUrl: "https://n8n.example.com/webhook/test",
+      secretToken: "",
+    });
+
+    const tokenInput = screen.getByPlaceholderText(/token/i);
     fireEvent.input(tokenInput, {
       target: { value: "my-secret" },
     });
-    fireEvent.click(screen.getByText("Save"));
 
-    expect(onSave).toHaveBeenCalledWith({
-      webhookUrl: "https://n8n.example.com/webhook/test",
+    expect(onChange).toHaveBeenCalledWith({
+      webhookUrl: "",
       secretToken: "my-secret",
     });
   });
@@ -69,7 +73,7 @@ describe("Settings", () => {
           webhookUrl: "https://existing.com/webhook",
           secretToken: "existing-token",
         }}
-        onSave={() => {}}
+        onChange={() => {}}
       />,
     );
 

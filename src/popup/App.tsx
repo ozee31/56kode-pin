@@ -59,10 +59,9 @@ export function App() {
     }
   };
 
-  const handleSaveSettings = async (newSettings: ExtensionSettings) => {
-    await chrome.storage.local.set(newSettings);
+  const handleSettingsChange = (newSettings: ExtensionSettings) => {
+    chrome.storage.local.set(newSettings);
     setSettings(newSettings);
-    setSettingsOpen(false);
   };
 
   return (
@@ -79,7 +78,7 @@ export function App() {
       </header>
 
       {settingsOpen && (
-        <Settings settings={settings} onSave={handleSaveSettings} />
+        <Settings settings={settings} onChange={handleSettingsChange} />
       )}
 
       <PinButton status={status} onClick={handlePin} />
