@@ -33,6 +33,17 @@ beforeEach(() => {
   vi.clearAllMocks();
 });
 
+/**
+ * Helper: mock the two-step executeScript flow.
+ * Call 1 (files injection) → resolves with undefined result.
+ * Call 2 (func retrieval)  → resolves with the given article data.
+ */
+function mockSuccessfulExtraction(article: typeof mockArticleData | null) {
+  mockExecuteScript
+    .mockResolvedValueOnce([{ result: undefined }]) // files injection
+    .mockResolvedValueOnce([{ result: article }]); // func retrieval
+}
+
 describe("handlePinArticle", () => {
   it("should return error when no active tab is found", async () => {
     mockTabsQuery.mockResolvedValue([]);
@@ -55,7 +66,7 @@ describe("handlePinArticle", () => {
 
   it("should return error when content extraction returns null", async () => {
     mockTabsQuery.mockResolvedValue([{ id: 1 }]);
-    mockExecuteScript.mockResolvedValue([{ result: null }]);
+    mockSuccessfulExtraction(null);
     const result = await handlePinArticle();
     expect(result).toEqual({
       success: false,
@@ -65,7 +76,7 @@ describe("handlePinArticle", () => {
 
   it("should return error when webhook URL is not configured", async () => {
     mockTabsQuery.mockResolvedValue([{ id: 1 }]);
-    mockExecuteScript.mockResolvedValue([{ result: mockArticleData }]);
+    mockSuccessfulExtraction(mockArticleData);
     mockStorageGet.mockResolvedValue({});
     const result = await handlePinArticle();
     expect(result).toEqual({
@@ -77,7 +88,7 @@ describe("handlePinArticle", () => {
 
   it("should return error on network failure", async () => {
     mockTabsQuery.mockResolvedValue([{ id: 1 }]);
-    mockExecuteScript.mockResolvedValue([{ result: mockArticleData }]);
+    mockSuccessfulExtraction(mockArticleData);
     mockStorageGet.mockResolvedValue({
       webhookUrl: "https://n8n.example.com/webhook/test",
       secretToken: "token123",
@@ -92,7 +103,7 @@ describe("handlePinArticle", () => {
 
   it("should return error on 401 response", async () => {
     mockTabsQuery.mockResolvedValue([{ id: 1 }]);
-    mockExecuteScript.mockResolvedValue([{ result: mockArticleData }]);
+    mockSuccessfulExtraction(mockArticleData);
     mockStorageGet.mockResolvedValue({
       webhookUrl: "https://n8n.example.com/webhook/test",
       secretToken: "wrong-token",
@@ -111,7 +122,7 @@ describe("handlePinArticle", () => {
 
   it("should return error on 500 response", async () => {
     mockTabsQuery.mockResolvedValue([{ id: 1 }]);
-    mockExecuteScript.mockResolvedValue([{ result: mockArticleData }]);
+    mockSuccessfulExtraction(mockArticleData);
     mockStorageGet.mockResolvedValue({
       webhookUrl: "https://n8n.example.com/webhook/test",
     });
@@ -129,7 +140,7 @@ describe("handlePinArticle", () => {
 
   it("should return success with webhook response data on 200", async () => {
     mockTabsQuery.mockResolvedValue([{ id: 1 }]);
-    mockExecuteScript.mockResolvedValue([{ result: mockArticleData }]);
+    mockSuccessfulExtraction(mockArticleData);
     mockStorageGet.mockResolvedValue({
       webhookUrl: "https://n8n.example.com/webhook/test",
       secretToken: "token123",
@@ -154,7 +165,7 @@ describe("handlePinArticle", () => {
 
   it("should include X-Secret-Token header when token is configured", async () => {
     mockTabsQuery.mockResolvedValue([{ id: 1 }]);
-    mockExecuteScript.mockResolvedValue([{ result: mockArticleData }]);
+    mockSuccessfulExtraction(mockArticleData);
     mockStorageGet.mockResolvedValue({
       webhookUrl: "https://n8n.example.com/webhook/test",
       secretToken: "my-secret",
@@ -178,7 +189,7 @@ describe("handlePinArticle", () => {
 
   it("should not include X-Secret-Token header when token is empty", async () => {
     mockTabsQuery.mockResolvedValue([{ id: 1 }]);
-    mockExecuteScript.mockResolvedValue([{ result: mockArticleData }]);
+    mockSuccessfulExtraction(mockArticleData);
     mockStorageGet.mockResolvedValue({
       webhookUrl: "https://n8n.example.com/webhook/test",
       secretToken: "",

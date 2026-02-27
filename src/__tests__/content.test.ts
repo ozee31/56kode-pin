@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { extractArticle } from "../content/index";
+import { extractArticle } from "../content/extract";
 
 describe("extractArticle", () => {
   it("should return null for a page with an empty body", () => {

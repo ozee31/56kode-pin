@@ -30,10 +30,9 @@ async function pinArticle(): Promise<PinArticleResponse> {
     return { success: false, error: "No active tab found" };
   }
 
-  // 2. Inject content script and get article data
-  let injectionResults;
+  // 2. Inject content script (extracts article and stores on globalThis)
   try {
-    injectionResults = await chrome.scripting.executeScript({
+    await chrome.scripting.executeScript({
       target: { tabId: tab.id },
       files: [contentScriptPath],
     });
@@ -44,7 +43,18 @@ async function pinArticle(): Promise<PinArticleResponse> {
     };
   }
 
-  const articleData = injectionResults?.[0]?.result as ArticleData | null;
+  // 3. Retrieve extraction result from the shared isolated world
+  const retrievalResults = await chrome.scripting.executeScript({
+    target: { tabId: tab.id },
+    func: () => {
+      const g = globalThis as Record<string, unknown>;
+      const data = g.__pinExtractedArticle;
+      delete g.__pinExtractedArticle;
+      return data ?? null;
+    },
+  });
+
+  const articleData = retrievalResults?.[0]?.result as ArticleData | null;
   if (!articleData) {
     return {
       success: false,
@@ -52,7 +62,7 @@ async function pinArticle(): Promise<PinArticleResponse> {
     };
   }
 
-  // 3. Load settings from storage
+  // 4. Load settings from storage
   const settings = (await chrome.storage.local.get([
     "webhookUrl",
     "secretToken",
@@ -66,7 +76,7 @@ async function pinArticle(): Promise<PinArticleResponse> {
     };
   }
 
-  // 4. POST to webhook
+  // 5. POST to webhook
   let response: Response;
   try {
     response = await fetch(settings.webhookUrl, {
@@ -86,7 +96,7 @@ async function pinArticle(): Promise<PinArticleResponse> {
     };
   }
 
-  // 5. Handle response
+  // 6. Handle response
   if (!response.ok) {
     const errorText = await response.text().catch(() => "Unknown error");
     if (response.status === 401) {
