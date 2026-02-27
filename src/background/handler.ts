@@ -2,6 +2,7 @@ import type {
   PinArticleResponse,
   ArticleData,
   ExtensionSettings,
+  WebhookSuccessResponse,
 } from "../types/messages";
 
 import contentScriptPath from "../content/index.ts?script";
@@ -105,13 +106,32 @@ async function pinArticle(): Promise<PinArticleResponse> {
         error: "Unauthorized: check your secret token",
       };
     }
+
+    // Try to parse structured error from n8n workflow
+    try {
+      const errorData = JSON.parse(errorText);
+      if (errorData.error) {
+        return { success: false, error: `Webhook error: ${errorData.error}` };
+      }
+    } catch {
+      // Not JSON, fall through to generic message
+    }
+
     return {
       success: false,
       error: `Webhook error (${response.status}): ${errorText}`,
     };
   }
 
-  const data = await response.json();
+  let data: WebhookSuccessResponse;
+  try {
+    data = await response.json();
+  } catch {
+    return {
+      success: false,
+      error: "Invalid response from webhook (not JSON)",
+    };
+  }
   return { success: true, data };
 }
 

@@ -138,6 +138,45 @@ describe("handlePinArticle", () => {
     });
   });
 
+  it("should parse structured JSON error from n8n workflow", async () => {
+    mockTabsQuery.mockResolvedValue([{ id: 1 }]);
+    mockSuccessfulExtraction(mockArticleData);
+    mockStorageGet.mockResolvedValue({
+      webhookUrl: "https://n8n.example.com/webhook/test",
+    });
+    mockFetch.mockResolvedValue({
+      ok: false,
+      status: 500,
+      text: () =>
+        Promise.resolve(
+          '{"status":"error","error":"File already exists"}',
+        ),
+    });
+    const result = await handlePinArticle();
+    expect(result).toEqual({
+      success: false,
+      error: "Webhook error: File already exists",
+    });
+  });
+
+  it("should return error when response body is not valid JSON", async () => {
+    mockTabsQuery.mockResolvedValue([{ id: 1 }]);
+    mockSuccessfulExtraction(mockArticleData);
+    mockStorageGet.mockResolvedValue({
+      webhookUrl: "https://n8n.example.com/webhook/test",
+    });
+    mockFetch.mockResolvedValue({
+      ok: true,
+      json: () =>
+        Promise.reject(new SyntaxError("Unexpected end of JSON input")),
+    });
+    const result = await handlePinArticle();
+    expect(result).toEqual({
+      success: false,
+      error: "Invalid response from webhook (not JSON)",
+    });
+  });
+
   it("should return success with webhook response data on 200", async () => {
     mockTabsQuery.mockResolvedValue([{ id: 1 }]);
     mockSuccessfulExtraction(mockArticleData);
