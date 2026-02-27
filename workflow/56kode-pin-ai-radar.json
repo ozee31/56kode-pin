@@ -1,0 +1,192 @@
+{
+  "name": "56kode Pin - AI Radar",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "your-webhook-path",
+        "authentication": "headerAuth",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "webhook-1",
+      "name": "Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [0, 304],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "***",
+          "name": "Header Auth 56kode-pin"
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=Analyze the following technical article and return a JSON object with these exact fields:\n\n- \"title\": string - The article title (clean up if needed, keep original language)\n- \"author\": string - The author name (use the provided author if available, otherwise deduce from content, or use \"Unknown\")\n- \"description\": string - A concise description in English, max 160 characters\n- \"tags\": string[] - 2 to 5 relevant technical tags in lowercase (e.g. \"react\", \"web-perf\", \"typescript\")\n- \"rating\": integer - Quality/relevance score from 1 to 5 (1=poor, 5=excellent)\n- \"summary\": string - A long, very detailed summary in English covering ALL key points. Use markdown formatting (headings, lists, code blocks where relevant).\n\nArticle URL: {{ $json.body.url }}\nArticle Title: {{ $json.body.title }}\nArticle Author: {{ $json.body.author ?? 'Not detected' }}\n\nArticle Content:\n{{ $json.body.content }}",
+        "messages": {
+          "messageValues": [
+            {
+              "message": "You are a technical content analyst for a developer blog. You analyze technical articles and produce structured metadata and detailed summaries. You always respond with valid JSON only, without markdown code fences or any surrounding text."
+            }
+          ]
+        },
+        "batching": {}
+      },
+      "id": "llm-chain-1",
+      "name": "LLM Chain",
+      "type": "@n8n/n8n-nodes-langchain.chainLlm",
+      "typeVersion": 1.9,
+      "position": [400, 304],
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "model": "google/gemini-2.0-flash",
+        "options": {
+          "temperature": 0.3,
+          "maxTokens": 8192
+        }
+      },
+      "id": "vercel-ai-1",
+      "name": "Vercel AI Gateway",
+      "type": "@n8n/n8n-nodes-langchain.lmChatVercelAiGateway",
+      "typeVersion": 1,
+      "position": [208, 528],
+      "credentials": {
+        "vercelAiGatewayApi": {
+          "id": "***",
+          "name": "Vercel AI Gateway account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "const llmOutput = $input.first().json.text;\n\nlet parsed;\ntry {\n  let jsonStr = llmOutput.trim();\n  // Remove potential markdown code fences\n  if (jsonStr.startsWith('```')) {\n    jsonStr = jsonStr.replace(/^```(?:json)?\\n?/, '').replace(/\\n?```$/, '');\n  }\n  parsed = JSON.parse(jsonStr);\n} catch (e) {\n  throw new Error(`Failed to parse LLM response as JSON: ${e.message}`);\n}\n\n// Validate required fields\nconst required = ['title', 'description', 'tags', 'rating', 'summary'];\nfor (const field of required) {\n  if (parsed[field] === undefined || parsed[field] === null) {\n    throw new Error(`Missing required field: ${field}`);\n  }\n}\n\n// Type validation\nif (typeof parsed.title !== 'string' || !parsed.title.length) {\n  throw new Error('title must be a non-empty string');\n}\nif (typeof parsed.description !== 'string' || !parsed.description.length) {\n  throw new Error('description must be a non-empty string');\n}\nif (!Array.isArray(parsed.tags) || !parsed.tags.length) {\n  throw new Error('tags must be a non-empty array');\n}\nif (!Number.isInteger(parsed.rating) || parsed.rating < 1 || parsed.rating > 5) {\n  throw new Error('rating must be an integer between 1 and 5');\n}\nif (typeof parsed.summary !== 'string' || !parsed.summary.length) {\n  throw new Error('summary must be a non-empty string');\n}\n\n// Get original webhook data\nconst webhookData = $('Webhook').first().json.body;\n\nreturn [{\n  json: {\n    ...parsed,\n    url: webhookData.url,\n    originalAuthor: webhookData.author,\n  }\n}];"
+      },
+      "id": "parse-validate-1",
+      "name": "Parse & Validate",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [800, 304],
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "jsCode": "const data = $input.first().json;\n\n// Generate slug from title\nconst slug = data.title\n  .toLowerCase()\n  .normalize('NFD')\n  .replace(/[\\u0300-\\u036f]/g, '')\n  .replace(/[^a-z0-9]+/g, '-')\n  .replace(/^-+|-+$/g, '')\n  .substring(0, 80);\n\n// Current datetime in ISO format\nconst pubDatetime = new Date().toISOString();\n\n// Author\nconst author = data.author || data.originalAuthor || 'Unknown';\n\n// Build YAML tags\nconst tagsYaml = data.tags.map(t => `  - ${t}`).join('\\n');\n\n// Escape double quotes in strings for YAML\nconst escapeYaml = (str) => str.replace(/\"/g, '\\\\\"');\n\n// Build frontmatter\nconst frontmatter = [\n  '---',\n  `author: ${author}`,\n  `pubDatetime: ${pubDatetime}`,\n  `title: \"${escapeYaml(data.title)}\"`,\n  `slug: \"${slug}\"`,\n  `description: \"${escapeYaml(data.description)}\"`,\n  `url: \"${data.url}\"`,\n  'tags:',\n  tagsYaml,\n  `rating: ${data.rating}`,\n  '---',\n].join('\\n');\n\nconst markdown = `${frontmatter}\\n\\n${data.summary}\\n`;\nconst filePath = `src/content/ai-radar/${slug}.md`;\nconst commitMessage = `feat(ai-radar): add ${slug}`;\n\nreturn [{\n  json: {\n    markdown,\n    filePath,\n    commitMessage,\n    slug,\n  }\n}];"
+      },
+      "id": "build-markdown-1",
+      "name": "Build Markdown",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1200, 304],
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "resource": "file",
+        "owner": {
+          "__rl": true,
+          "value": "ozee31",
+          "mode": "name"
+        },
+        "repository": {
+          "__rl": true,
+          "value": "56kode",
+          "mode": "name"
+        },
+        "filePath": "={{ $json.filePath }}",
+        "fileContent": "={{ $json.markdown }}",
+        "commitMessage": "={{ $json.commitMessage }}",
+        "additionalParameters": {
+          "branch": {}
+        }
+      },
+      "id": "github-1",
+      "name": "GitHub Create File",
+      "type": "n8n-nodes-base.github",
+      "typeVersion": 1.1,
+      "position": [1600, 304],
+      "credentials": {
+        "githubApi": {
+          "id": "***",
+          "name": "GitHub 56kode"
+        }
+      },
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={\"status\": \"ok\", \"file\": \"{{ $('Build Markdown').first().json.filePath }}\"}",
+        "options": {
+          "responseCode": 200
+        }
+      },
+      "id": "respond-success-1",
+      "name": "Respond Success",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [2000, 304]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={\"status\": \"error\", \"error\": \"{{ $json.error?.message ?? $json.error ?? 'Workflow processing failed' }}\"}",
+        "options": {
+          "responseCode": 500
+        }
+      },
+      "id": "respond-error-1",
+      "name": "Respond Error",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.5,
+      "position": [2000, 700]
+    }
+  ],
+  "connections": {
+    "Webhook": {
+      "main": [
+        [{ "node": "LLM Chain", "type": "main", "index": 0 }]
+      ]
+    },
+    "Vercel AI Gateway": {
+      "ai_languageModel": [
+        [{ "node": "LLM Chain", "type": "ai_languageModel", "index": 0 }]
+      ]
+    },
+    "LLM Chain": {
+      "main": [
+        [{ "node": "Parse & Validate", "type": "main", "index": 0 }],
+        [{ "node": "Respond Error", "type": "main", "index": 0 }]
+      ]
+    },
+    "Parse & Validate": {
+      "main": [
+        [{ "node": "Build Markdown", "type": "main", "index": 0 }],
+        [{ "node": "Respond Error", "type": "main", "index": 0 }]
+      ]
+    },
+    "Build Markdown": {
+      "main": [
+        [{ "node": "GitHub Create File", "type": "main", "index": 0 }],
+        [{ "node": "Respond Error", "type": "main", "index": 0 }]
+      ]
+    },
+    "GitHub Create File": {
+      "main": [
+        [{ "node": "Respond Success", "type": "main", "index": 0 }],
+        [{ "node": "Respond Error", "type": "main", "index": 0 }]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "Europe/Paris",
+    "executionTimeout": 120,
+    "callerPolicy": "workflowsFromSameOwner",
+    "availableInMCP": false
+  }
+}
